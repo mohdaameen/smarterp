@@ -1,0 +1,541 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum UserRole {
+  OWNER
+  ADMIN
+  ACCOUNTANT
+  OPERATOR
+  VIEWER
+}
+
+enum LedgerType {
+  CUSTOMER
+  SUPPLIER
+  INCOME
+  EXPENSE
+  BANK
+  CASH
+  STOCK
+}
+
+enum VoucherType {
+  SALES
+  PURCHASE
+  RECEIPT
+  PAYMENT
+  JOURNAL
+  CREDIT_NOTE
+  DEBIT_NOTE
+}
+
+enum VoucherStatus {
+  DRAFT
+  POSTED
+  CANCELLED
+}
+
+enum GstType {
+  CGST
+  SGST
+  IGST
+}
+
+enum InventoryTxnType {
+  IN
+  OUT
+  ADJUSTMENT
+  TRANSFER
+}
+
+enum StockValuationMethod {
+  FIFO
+  AVG
+}
+
+model User {
+  id            String        @id @default(uuid()) @db.Uuid
+  fullName      String        @map("full_name") @db.VarChar(120)
+  email         String        @unique @db.VarChar(255)
+  passwordHash  String        @map("password_hash")
+  phone         String?       @db.VarChar(20)
+  isActive      Boolean       @default(true) @map("is_active")
+  lastLoginAt   DateTime?     @map("last_login_at") @db.Timestamptz(6)
+  createdAt     DateTime      @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt     DateTime      @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  ownedCompanies Company[]      @relation("CompanyOwner")
+  memberships    UserCompany[]
+  vouchersCreated Voucher[]      @relation("VoucherCreatedBy")
+  vouchersUpdated Voucher[]      @relation("VoucherUpdatedBy")
+  auditLogs      AuditLog[]
+
+  @@map("users")
+}
+
+model Company {
+  id                   String                @id @default(uuid()) @db.Uuid
+  ownerUserId          String                @map("owner_user_id") @db.Uuid
+  name                 String                @db.VarChar(180)
+  legalName            String?               @map("legal_name") @db.VarChar(220)
+  gstNumber            String?               @map("gst_number") @db.VarChar(20)
+  panNumber            String?               @map("pan_number") @db.VarChar(20)
+  stateCode            String?               @map("state_code") @db.VarChar(10)
+  addressLine1         String?               @map("address_line1") @db.VarChar(255)
+  addressLine2         String?               @map("address_line2") @db.VarChar(255)
+  city                 String?               @db.VarChar(100)
+  postalCode           String?               @map("postal_code") @db.VarChar(20)
+  country              String                @default("India") @db.VarChar(80)
+  phone                String?               @db.VarChar(20)
+  email                String?               @db.VarChar(255)
+  isActive             Boolean               @default(true) @map("is_active")
+  stockValuationMethod StockValuationMethod  @default(FIFO) @map("stock_valuation_method")
+  allowNegativeStock   Boolean               @default(false) @map("allow_negative_stock")
+  createdAt            DateTime              @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt            DateTime              @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  owner                 User                  @relation("CompanyOwner", fields: [ownerUserId], references: [id])
+  memberships           UserCompany[]
+  financialYears        FinancialYear[]
+  ledgerGroups          LedgerGroup[]
+  ledgers               Ledger[]
+  units                 Unit[]
+  stockGroups           StockGroup[]
+  stockItems            StockItem[]
+  customers             Customer[]
+  suppliers             Supplier[]
+  vouchers              Voucher[]
+  invoices              Invoice[]
+  inventoryTransactions InventoryTransaction[]
+  ledgerEntries         LedgerEntry[]
+  gstRecords            GstRecord[]
+  auditLogs             AuditLog[]
+  idempotencyKeys       IdempotencyKey[]
+
+  @@index([ownerUserId])
+  @@index([gstNumber])
+  @@map("companies")
+}
+
+model UserCompany {
+  id        String    @id @default(uuid()) @db.Uuid
+  userId    String    @map("user_id") @db.Uuid
+  companyId String    @map("company_id") @db.Uuid
+  role      UserRole
+  isActive  Boolean   @default(true) @map("is_active")
+  createdAt DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  user      User      @relation(fields: [userId], references: [id])
+  company   Company   @relation(fields: [companyId], references: [id])
+
+  @@unique([userId, companyId])
+  @@index([companyId, role])
+  @@map("user_companies")
+}
+
+model FinancialYear {
+  id         String    @id @default(uuid()) @db.Uuid
+  companyId  String    @map("company_id") @db.Uuid
+  label      String    @db.VarChar(30)
+  startDate  DateTime  @map("start_date") @db.Date
+  endDate    DateTime  @map("end_date") @db.Date
+  isCurrent  Boolean   @default(false) @map("is_current")
+  isLocked   Boolean   @default(false) @map("is_locked")
+  createdAt  DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt  DateTime  @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  company    Company   @relation(fields: [companyId], references: [id])
+  vouchers   Voucher[]
+  inventoryTransactions InventoryTransaction[]
+  ledgerEntries LedgerEntry[]
+
+  @@unique([companyId, label])
+  @@index([companyId, isCurrent])
+  @@map("financial_years")
+}
+
+model LedgerGroup {
+  id            String        @id @default(uuid()) @db.Uuid
+  companyId     String        @map("company_id") @db.Uuid
+  name          String        @db.VarChar(120)
+  parentGroupId String?       @map("parent_group_id") @db.Uuid
+  nature        String        @db.VarChar(30)
+  isSystem      Boolean       @default(false) @map("is_system")
+  isActive      Boolean       @default(true) @map("is_active")
+  createdAt     DateTime      @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt     DateTime      @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  company       Company       @relation(fields: [companyId], references: [id])
+  parentGroup   LedgerGroup?  @relation("LedgerGroupHierarchy", fields: [parentGroupId], references: [id])
+  childGroups   LedgerGroup[] @relation("LedgerGroupHierarchy")
+  ledgers       Ledger[]
+
+  @@unique([companyId, name])
+  @@map("ledger_groups")
+}
+
+model Ledger {
+  id                 String      @id @default(uuid()) @db.Uuid
+  companyId          String      @map("company_id") @db.Uuid
+  ledgerGroupId      String      @map("ledger_group_id") @db.Uuid
+  name               String      @db.VarChar(140)
+  code               String?     @db.VarChar(40)
+  ledgerType         LedgerType  @map("ledger_type")
+  openingBalance     Decimal     @default(0) @map("opening_balance") @db.Decimal(18, 2)
+  openingBalanceType String      @default("DR") @map("opening_balance_type") @db.VarChar(2)
+  gstin              String?     @db.VarChar(20)
+  pan                String?     @db.VarChar(20)
+  email              String?     @db.VarChar(255)
+  phone              String?     @db.VarChar(20)
+  addressJson        Json?       @map("address_json")
+  isActive           Boolean     @default(true) @map("is_active")
+  createdAt          DateTime    @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt          DateTime    @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  company            Company     @relation(fields: [companyId], references: [id])
+  ledgerGroup        LedgerGroup @relation(fields: [ledgerGroupId], references: [id])
+  customers          Customer[]
+  suppliers          Supplier[]
+  vouchersAsCounterparty Voucher[] @relation("VoucherCounterparty")
+  voucherLines       VoucherLine[]
+  ledgerEntries      LedgerEntry[]
+
+  @@unique([companyId, name])
+  @@index([companyId, ledgerType])
+  @@index([companyId, code])
+  @@map("ledgers")
+}
+
+model Unit {
+  id            String    @id @default(uuid()) @db.Uuid
+  companyId     String    @map("company_id") @db.Uuid
+  name          String    @db.VarChar(60)
+  symbol        String    @db.VarChar(20)
+  decimalPlaces Int       @default(2) @map("decimal_places")
+  isActive      Boolean   @default(true) @map("is_active")
+  createdAt     DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt     DateTime  @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  company       Company   @relation(fields: [companyId], references: [id])
+  stockItems    StockItem[]
+
+  @@unique([companyId, symbol])
+  @@map("units")
+}
+
+model StockGroup {
+  id            String       @id @default(uuid()) @db.Uuid
+  companyId     String       @map("company_id") @db.Uuid
+  name          String       @db.VarChar(120)
+  parentGroupId String?      @map("parent_group_id") @db.Uuid
+  isActive      Boolean      @default(true) @map("is_active")
+  createdAt     DateTime     @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt     DateTime     @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  company       Company      @relation(fields: [companyId], references: [id])
+  parentGroup   StockGroup?  @relation("StockGroupHierarchy", fields: [parentGroupId], references: [id])
+  childGroups   StockGroup[] @relation("StockGroupHierarchy")
+  stockItems    StockItem[]
+
+  @@unique([companyId, name])
+  @@map("stock_groups")
+}
+
+model StockItem {
+  id                 String      @id @default(uuid()) @db.Uuid
+  companyId          String      @map("company_id") @db.Uuid
+  stockGroupId       String      @map("stock_group_id") @db.Uuid
+  unitId             String      @map("unit_id") @db.Uuid
+  name               String      @db.VarChar(180)
+  sku                String      @db.VarChar(80)
+  barcode            String?     @db.VarChar(80)
+  hsnCode            String?     @map("hsn_code") @db.VarChar(20)
+  purchasePrice      Decimal     @default(0) @map("purchase_price") @db.Decimal(18, 2)
+  sellingPrice       Decimal     @default(0) @map("selling_price") @db.Decimal(18, 2)
+  gstRate            Decimal     @default(0) @map("gst_rate") @db.Decimal(5, 2)
+  reorderLevel       Decimal     @default(0) @map("reorder_level") @db.Decimal(18, 3)
+  isActive           Boolean     @default(true) @map("is_active")
+  createdAt          DateTime    @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt          DateTime    @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  company            Company     @relation(fields: [companyId], references: [id])
+  stockGroup         StockGroup  @relation(fields: [stockGroupId], references: [id])
+  unit               Unit        @relation(fields: [unitId], references: [id])
+  voucherLines       VoucherLine[]
+  invoiceItems       InvoiceItem[]
+  inventoryTransactions InventoryTransaction[]
+
+  @@unique([companyId, sku])
+  @@unique([companyId, name])
+  @@index([companyId, stockGroupId])
+  @@map("stock_items")
+}
+
+model Customer {
+  id          String    @id @default(uuid()) @db.Uuid
+  companyId   String    @map("company_id") @db.Uuid
+  ledgerId    String    @unique @map("ledger_id") @db.Uuid
+  name        String    @db.VarChar(180)
+  mobile      String?   @db.VarChar(20)
+  email       String?   @db.VarChar(255)
+  gstin       String?   @db.VarChar(20)
+  addressJson Json?     @map("address_json")
+  creditLimit Decimal   @default(0) @map("credit_limit") @db.Decimal(18, 2)
+  isActive    Boolean   @default(true) @map("is_active")
+  createdAt   DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt   DateTime  @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  company     Company   @relation(fields: [companyId], references: [id])
+  ledger      Ledger    @relation(fields: [ledgerId], references: [id])
+  invoices    Invoice[]
+
+  @@index([companyId, name])
+  @@map("customers")
+}
+
+model Supplier {
+  id          String    @id @default(uuid()) @db.Uuid
+  companyId   String    @map("company_id") @db.Uuid
+  ledgerId    String    @unique @map("ledger_id") @db.Uuid
+  name        String    @db.VarChar(180)
+  mobile      String?   @db.VarChar(20)
+  email       String?   @db.VarChar(255)
+  gstin       String?   @db.VarChar(20)
+  addressJson Json?     @map("address_json")
+  isActive    Boolean   @default(true) @map("is_active")
+  createdAt   DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt   DateTime  @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  company     Company   @relation(fields: [companyId], references: [id])
+  ledger      Ledger    @relation(fields: [ledgerId], references: [id])
+
+  @@index([companyId, name])
+  @@map("suppliers")
+}
+
+model Voucher {
+  id                  String        @id @default(uuid()) @db.Uuid
+  companyId           String        @map("company_id") @db.Uuid
+  financialYearId     String        @map("financial_year_id") @db.Uuid
+  voucherType         VoucherType   @map("voucher_type")
+  voucherNumber       String        @map("voucher_number") @db.VarChar(40)
+  voucherDate         DateTime      @map("voucher_date") @db.Date
+  referenceNumber     String?       @map("reference_number") @db.VarChar(60)
+  narration           String?
+  status              VoucherStatus @default(POSTED)
+  counterpartyLedgerId String?      @map("counterparty_ledger_id") @db.Uuid
+  totalTaxableAmount  Decimal       @default(0) @map("total_taxable_amount") @db.Decimal(18, 2)
+  totalTaxAmount      Decimal       @default(0) @map("total_tax_amount") @db.Decimal(18, 2)
+  totalAmount         Decimal       @default(0) @map("total_amount") @db.Decimal(18, 2)
+  createdById         String?       @map("created_by") @db.Uuid
+  updatedById         String?       @map("updated_by") @db.Uuid
+  createdAt           DateTime      @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt           DateTime      @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  company             Company       @relation(fields: [companyId], references: [id])
+  financialYear       FinancialYear @relation(fields: [financialYearId], references: [id])
+  counterpartyLedger  Ledger?       @relation("VoucherCounterparty", fields: [counterpartyLedgerId], references: [id])
+  createdBy           User?         @relation("VoucherCreatedBy", fields: [createdById], references: [id])
+  updatedBy           User?         @relation("VoucherUpdatedBy", fields: [updatedById], references: [id])
+  voucherLines        VoucherLine[]
+  invoice             Invoice?
+  inventoryTransactions InventoryTransaction[]
+  ledgerEntries       LedgerEntry[]
+  gstRecords          GstRecord[]
+
+  @@unique([companyId, financialYearId, voucherType, voucherNumber])
+  @@index([companyId, voucherDate])
+  @@index([companyId, voucherType, status])
+  @@map("vouchers")
+}
+
+model VoucherLine {
+  id            String    @id @default(uuid()) @db.Uuid
+  voucherId     String    @map("voucher_id") @db.Uuid
+  lineNo        Int       @map("line_no")
+  ledgerId      String?   @map("ledger_id") @db.Uuid
+  stockItemId   String?   @map("stock_item_id") @db.Uuid
+  description   String?   @db.VarChar(255)
+  qty           Decimal?  @db.Decimal(18, 3)
+  rate          Decimal?  @db.Decimal(18, 4)
+  taxableAmount Decimal   @default(0) @map("taxable_amount") @db.Decimal(18, 2)
+  gstRate       Decimal   @default(0) @map("gst_rate") @db.Decimal(5, 2)
+  cgstAmount    Decimal   @default(0) @map("cgst_amount") @db.Decimal(18, 2)
+  sgstAmount    Decimal   @default(0) @map("sgst_amount") @db.Decimal(18, 2)
+  igstAmount    Decimal   @default(0) @map("igst_amount") @db.Decimal(18, 2)
+  lineTotal     Decimal   @default(0) @map("line_total") @db.Decimal(18, 2)
+
+  voucher       Voucher   @relation(fields: [voucherId], references: [id])
+  ledger        Ledger?   @relation(fields: [ledgerId], references: [id])
+  stockItem     StockItem? @relation(fields: [stockItemId], references: [id])
+
+  @@unique([voucherId, lineNo])
+  @@index([voucherId])
+  @@index([stockItemId])
+  @@map("voucher_lines")
+}
+
+model Invoice {
+  id                String    @id @default(uuid()) @db.Uuid
+  companyId         String    @map("company_id") @db.Uuid
+  voucherId         String    @unique @map("voucher_id") @db.Uuid
+  invoiceNumber     String    @map("invoice_number") @db.VarChar(40)
+  invoiceDate       DateTime  @map("invoice_date") @db.Date
+  customerId        String    @map("customer_id") @db.Uuid
+  billingAddressJson Json?    @map("billing_address_json")
+  shippingAddressJson Json?   @map("shipping_address_json")
+  subTotal          Decimal   @default(0) @map("sub_total") @db.Decimal(18, 2)
+  taxTotal          Decimal   @default(0) @map("tax_total") @db.Decimal(18, 2)
+  grandTotal        Decimal   @default(0) @map("grand_total") @db.Decimal(18, 2)
+  roundOff          Decimal   @default(0) @map("round_off") @db.Decimal(18, 2)
+  notes             String?
+  createdAt         DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt         DateTime  @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  company           Company   @relation(fields: [companyId], references: [id])
+  voucher           Voucher   @relation(fields: [voucherId], references: [id])
+  customer          Customer  @relation(fields: [customerId], references: [id])
+  items             InvoiceItem[]
+  gstRecords        GstRecord[]
+
+  @@unique([companyId, invoiceNumber])
+  @@index([companyId, invoiceDate])
+  @@map("invoices")
+}
+
+model InvoiceItem {
+  id            String    @id @default(uuid()) @db.Uuid
+  invoiceId     String    @map("invoice_id") @db.Uuid
+  lineNo        Int       @map("line_no")
+  stockItemId   String    @map("stock_item_id") @db.Uuid
+  description   String?   @db.VarChar(255)
+  hsnCode       String?   @map("hsn_code") @db.VarChar(20)
+  qty           Decimal   @db.Decimal(18, 3)
+  rate          Decimal   @db.Decimal(18, 4)
+  taxableAmount Decimal   @default(0) @map("taxable_amount") @db.Decimal(18, 2)
+  gstRate       Decimal   @default(0) @map("gst_rate") @db.Decimal(5, 2)
+  cgstAmount    Decimal   @default(0) @map("cgst_amount") @db.Decimal(18, 2)
+  sgstAmount    Decimal   @default(0) @map("sgst_amount") @db.Decimal(18, 2)
+  igstAmount    Decimal   @default(0) @map("igst_amount") @db.Decimal(18, 2)
+  lineTotal     Decimal   @default(0) @map("line_total") @db.Decimal(18, 2)
+
+  invoice       Invoice   @relation(fields: [invoiceId], references: [id])
+  stockItem     StockItem @relation(fields: [stockItemId], references: [id])
+
+  @@unique([invoiceId, lineNo])
+  @@map("invoice_items")
+}
+
+model InventoryTransaction {
+  id              String           @id @default(uuid()) @db.Uuid
+  companyId       String           @map("company_id") @db.Uuid
+  financialYearId String           @map("financial_year_id") @db.Uuid
+  stockItemId     String           @map("stock_item_id") @db.Uuid
+  txnType         InventoryTxnType @map("txn_type")
+  txnDate         DateTime         @map("txn_date") @db.Date
+  qtyIn           Decimal          @default(0) @map("qty_in") @db.Decimal(18, 3)
+  qtyOut          Decimal          @default(0) @map("qty_out") @db.Decimal(18, 3)
+  unitCost        Decimal          @default(0) @map("unit_cost") @db.Decimal(18, 4)
+  totalCost       Decimal          @default(0) @map("total_cost") @db.Decimal(18, 2)
+  voucherId       String?          @map("voucher_id") @db.Uuid
+  reference       String?          @db.VarChar(60)
+  remarks         String?
+  createdAt       DateTime         @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  company         Company          @relation(fields: [companyId], references: [id])
+  financialYear   FinancialYear    @relation(fields: [financialYearId], references: [id])
+  stockItem       StockItem        @relation(fields: [stockItemId], references: [id])
+  voucher         Voucher?         @relation(fields: [voucherId], references: [id])
+
+  @@index([companyId, stockItemId, txnDate])
+  @@index([voucherId])
+  @@map("inventory_transactions")
+}
+
+model LedgerEntry {
+  id              String        @id @default(uuid()) @db.Uuid
+  companyId       String        @map("company_id") @db.Uuid
+  financialYearId String        @map("financial_year_id") @db.Uuid
+  voucherId       String        @map("voucher_id") @db.Uuid
+  entryDate       DateTime      @map("entry_date") @db.Date
+  ledgerId        String        @map("ledger_id") @db.Uuid
+  debitAmount     Decimal       @default(0) @map("debit_amount") @db.Decimal(18, 2)
+  creditAmount    Decimal       @default(0) @map("credit_amount") @db.Decimal(18, 2)
+  lineNo          Int           @map("line_no")
+  remarks         String?       @db.VarChar(255)
+  createdAt       DateTime      @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  company         Company       @relation(fields: [companyId], references: [id])
+  financialYear   FinancialYear @relation(fields: [financialYearId], references: [id])
+  voucher         Voucher       @relation(fields: [voucherId], references: [id])
+  ledger          Ledger        @relation(fields: [ledgerId], references: [id])
+
+  @@index([companyId, ledgerId, entryDate])
+  @@index([voucherId])
+  @@map("ledger_entries")
+}
+
+model GstRecord {
+  id            String   @id @default(uuid()) @db.Uuid
+  companyId     String   @map("company_id") @db.Uuid
+  voucherId     String   @map("voucher_id") @db.Uuid
+  invoiceId     String?  @map("invoice_id") @db.Uuid
+  gstType       GstType  @map("gst_type")
+  gstRate       Decimal  @map("gst_rate") @db.Decimal(5, 2)
+  taxableAmount Decimal  @default(0) @map("taxable_amount") @db.Decimal(18, 2)
+  taxAmount     Decimal  @default(0) @map("tax_amount") @db.Decimal(18, 2)
+  placeOfSupply String?  @map("place_of_supply") @db.VarChar(60)
+  createdAt     DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  company       Company  @relation(fields: [companyId], references: [id])
+  voucher       Voucher  @relation(fields: [voucherId], references: [id])
+  invoice       Invoice? @relation(fields: [invoiceId], references: [id])
+
+  @@index([companyId, gstType])
+  @@index([voucherId])
+  @@map("gst_records")
+}
+
+model AuditLog {
+  id          String   @id @default(uuid()) @db.Uuid
+  companyId   String?  @map("company_id") @db.Uuid
+  userId      String?  @map("user_id") @db.Uuid
+  module      String   @db.VarChar(80)
+  entityName  String   @map("entity_name") @db.VarChar(80)
+  entityId    String?  @map("entity_id") @db.Uuid
+  action      String   @db.VarChar(20)
+  changesJson Json?    @map("changes_json")
+  ipAddress   String?  @map("ip_address") @db.VarChar(64)
+  userAgent   String?  @map("user_agent")
+  createdAt   DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  company     Company? @relation(fields: [companyId], references: [id])
+  user        User?    @relation(fields: [userId], references: [id])
+
+  @@index([companyId, module, createdAt])
+  @@index([entityName, entityId])
+  @@map("audit_logs")
+}
+
+model IdempotencyKey {
+  id          String   @id @default(uuid()) @db.Uuid
+  companyId   String   @map("company_id") @db.Uuid
+  key         String   @db.VarChar(120)
+  requestHash String   @map("request_hash") @db.VarChar(128)
+  responseJson Json?   @map("response_json")
+  statusCode  Int?     @map("status_code")
+  expiresAt   DateTime @map("expires_at") @db.Timestamptz(6)
+  createdAt   DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  company     Company  @relation(fields: [companyId], references: [id])
+
+  @@unique([companyId, key])
+  @@index([expiresAt])
+  @@map("idempotency_keys")
+}

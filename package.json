@@ -1,0 +1,18 @@
+{
+    "name": "smarterp",
+    "private": true,
+    "version": "0.1.0",
+    "workspaces": [
+        "apps/*"
+    ],
+    "scripts": {
+        "dev": "npm run dev -w @smarterp/api & npm run dev -w @smarterp/web",
+        "dev:web": "npm run dev -w @smarterp/web",
+        "dev:api": "npm run dev -w @smarterp/api",
+        "build": "npm run build -w @smarterp/web && npm run build -w @smarterp/api",
+        "start": "npm run start -w @smarterp/api"
+    },
+    "engines": {
+        "node": ">=20"
+    }
+}
