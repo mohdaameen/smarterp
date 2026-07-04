@@ -3,6 +3,14 @@ import express from "express";
 import swaggerUi from "swagger-ui-express";
 import { prisma, checkDatabaseConnection, getLastDatabaseError } from "./db.js";
 import { env } from "./env.js";
+import { errorHandler } from "./middlewares/error.js";
+import { logger } from "./config/logger.js";
+import authRoutes from "./modules/auth/auth.routes.js";
+import companiesRoutes from "./modules/companies/companies.routes.js";
+import mastersRoutes from "./modules/masters/masters.routes.js";
+import vouchersRoutes from "./modules/vouchers/vouchers.routes.js";
+import reportsRoutes from "./modules/reports/reports.routes.js";
+import "./types/index.js";
 
 const app = express();
 app.disable("x-powered-by");
@@ -41,11 +49,18 @@ const openApiSpec = {
 
 app.use(
     cors({
-        origin: env.FRONTEND_URL,
+        origin: env.CORS_ORIGIN,
         credentials: true
     })
 );
 app.use(express.json());
+
+// ─── API Routes ───────────────────────────────────────────────────────────────
+app.use("/api/v1/auth", authRoutes);
+app.use("/api/v1/companies", companiesRoutes);
+app.use("/api/v1/masters", mastersRoutes);
+app.use("/api/v1/vouchers", vouchersRoutes);
+app.use("/api/v1/reports", reportsRoutes);
 app.get("/openapi.json", (_req, res) => {
     res.json(openApiSpec);
 });
@@ -70,11 +85,14 @@ app.get("/", (_req, res) => {
 });
 
 const server = app.listen(env.PORT, () => {
-    console.log(`API listening on http://localhost:${env.PORT}`);
+    logger.info(`API listening on http://localhost:${env.PORT}`);
 });
 
+// ─── Central error handler (must be last) ─────────────────────────────────────
+app.use(errorHandler);
+
 async function shutdown(signal: string) {
-    console.log(`${signal} received. Shutting down...`);
+    logger.info(`${signal} received. Shutting down...`);
     server.close(async () => {
         await prisma.$disconnect();
         process.exit(0);
