@@ -3,9 +3,19 @@ import { prisma } from "../../db.js";
 import { AppError } from "../../middlewares/error.js";
 import { createAuditLog } from "../../utils/audit.js";
 import { paginate } from "../../utils/pagination.js";
-import type { CreateSalesVoucherInput, CreatePurchaseVoucherInput, CreateReceiptVoucherInput, CreatePaymentVoucherInput } from "./vouchers.schema.js";
+import type {
+    CreateSalesVoucherInput,
+    CreatePurchaseVoucherInput,
+    CreateReceiptVoucherInput,
+    CreatePaymentVoucherInput,
+    CreateContraVoucherInput,
+    CreateCreditNoteVoucherInput,
+    CreateDebitNoteVoucherInput,
+    CreateJournalVoucherInput,
+    CreateInventoryAdjustmentInput,
+    listVouchersQuerySchema,
+} from "./vouchers.schema.js";
 import type { z } from "zod";
-import type { listVouchersQuerySchema } from "./vouchers.schema.js";
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -561,6 +571,497 @@ export async function postPaymentVoucher(userId: string, input: CreatePaymentVou
     });
 
     await createAuditLog({ userId, companyId, module: "vouchers", entityName: "Voucher", entityId: result.voucher.id, action: "CREATE" });
+    return result;
+}
+
+// ─── Contra Voucher Posting ───────────────────────────────────────────────────
+// Transfer amount between cash/bank ledgers.
+
+export async function postContraVoucher(userId: string, input: CreateContraVoucherInput) {
+    const { companyId, financialYearId, fromLedgerId, toLedgerId } = input;
+    const idemKey = input.idempotencyKey;
+
+    if (idemKey) {
+        const cached = await prisma.$transaction(async (tx) => checkIdempotency(companyId, idemKey, tx));
+        if (cached) return cached;
+    }
+
+    const [fromLedger, toLedger] = await Promise.all([
+        prisma.ledger.findFirst({ where: { id: fromLedgerId, companyId } }),
+        prisma.ledger.findFirst({ where: { id: toLedgerId, companyId } }),
+    ]);
+
+    if (!fromLedger || !toLedger) {
+        throw new AppError(404, "One or more ledgers not found");
+    }
+
+    const allowedTypes = new Set(["BANK", "CASH"]);
+    if (!allowedTypes.has(fromLedger.ledgerType) || !allowedTypes.has(toLedger.ledgerType)) {
+        throw new AppError(400, "Contra voucher supports only BANK/CASH ledgers");
+    }
+
+    const result = await prisma.$transaction(async (tx) => {
+        const voucherNumber = await generateVoucherNumber(tx, companyId, financialYearId, "JOURNAL");
+        const voucherDate = new Date(input.voucherDate);
+        const narration = input.narration ?? `Contra transfer ${fromLedger.name} -> ${toLedger.name}`;
+
+        const voucher = await tx.voucher.create({
+            data: {
+                companyId,
+                financialYearId,
+                voucherType: "JOURNAL",
+                voucherNumber,
+                voucherDate,
+                referenceNumber: input.referenceNumber,
+                narration: `[CONTRA] ${narration}`,
+                status: "POSTED",
+                totalTaxableAmount: input.amount,
+                totalTaxAmount: 0,
+                totalAmount: input.amount,
+                createdById: userId,
+            },
+        });
+
+        await tx.voucherLine.createMany({
+            data: [
+                {
+                    voucherId: voucher.id,
+                    lineNo: 1,
+                    ledgerId: toLedgerId,
+                    description: `Contra DR ${toLedger.name}`,
+                    taxableAmount: input.amount,
+                    lineTotal: input.amount,
+                },
+                {
+                    voucherId: voucher.id,
+                    lineNo: 2,
+                    ledgerId: fromLedgerId,
+                    description: `Contra CR ${fromLedger.name}`,
+                    taxableAmount: input.amount,
+                    lineTotal: input.amount,
+                },
+            ],
+        });
+
+        await tx.ledgerEntry.createMany({
+            data: [
+                {
+                    companyId,
+                    financialYearId,
+                    voucherId: voucher.id,
+                    entryDate: voucherDate,
+                    ledgerId: toLedgerId,
+                    debitAmount: input.amount,
+                    creditAmount: 0,
+                    lineNo: 1,
+                    remarks: `Contra DR - ${voucherNumber}`,
+                },
+                {
+                    companyId,
+                    financialYearId,
+                    voucherId: voucher.id,
+                    entryDate: voucherDate,
+                    ledgerId: fromLedgerId,
+                    debitAmount: 0,
+                    creditAmount: input.amount,
+                    lineNo: 2,
+                    remarks: `Contra CR - ${voucherNumber}`,
+                },
+            ],
+        });
+
+        if (idemKey) {
+            await saveIdempotency(companyId, idemKey, { voucherId: voucher.id, voucherNumber }, tx);
+        }
+
+        return { voucher };
+    });
+
+    await createAuditLog({ userId, companyId, module: "vouchers", entityName: "Voucher", entityId: result.voucher.id, action: "CREATE" });
+    return result;
+}
+
+// ─── Credit Note Voucher Posting ──────────────────────────────────────────────
+
+export async function postCreditNoteVoucher(userId: string, input: CreateCreditNoteVoucherInput) {
+    const { companyId, financialYearId, customerId, salesReturnLedgerId } = input;
+    const idemKey = input.idempotencyKey;
+
+    if (idemKey) {
+        const cached = await prisma.$transaction(async (tx) => checkIdempotency(companyId, idemKey, tx));
+        if (cached) return cached;
+    }
+
+    const customer = await prisma.customer.findFirst({
+        where: { id: customerId, companyId },
+        include: { ledger: true },
+    });
+    if (!customer) throw new AppError(404, "Customer not found");
+
+    const returnLedger = await prisma.ledger.findFirst({ where: { id: salesReturnLedgerId, companyId } });
+    if (!returnLedger) throw new AppError(404, "Sales return ledger not found");
+
+    const result = await prisma.$transaction(async (tx) => {
+        const voucherNumber = await generateVoucherNumber(tx, companyId, financialYearId, "CREDIT_NOTE");
+        const voucherDate = new Date(input.voucherDate);
+
+        const voucher = await tx.voucher.create({
+            data: {
+                companyId,
+                financialYearId,
+                voucherType: "CREDIT_NOTE",
+                voucherNumber,
+                voucherDate,
+                referenceNumber: input.referenceNumber,
+                narration: input.narration ?? `Credit note for ${customer.name}`,
+                status: "POSTED",
+                counterpartyLedgerId: customer.ledgerId,
+                totalTaxableAmount: input.amount,
+                totalTaxAmount: 0,
+                totalAmount: input.amount,
+                createdById: userId,
+            },
+        });
+
+        await tx.voucherLine.createMany({
+            data: [
+                {
+                    voucherId: voucher.id,
+                    lineNo: 1,
+                    ledgerId: salesReturnLedgerId,
+                    description: "Sales return",
+                    taxableAmount: input.amount,
+                    lineTotal: input.amount,
+                },
+                {
+                    voucherId: voucher.id,
+                    lineNo: 2,
+                    ledgerId: customer.ledgerId,
+                    description: `Credit note - ${customer.name}`,
+                    taxableAmount: input.amount,
+                    lineTotal: input.amount,
+                },
+            ],
+        });
+
+        // DR Sales Return / CR Customer
+        await tx.ledgerEntry.createMany({
+            data: [
+                {
+                    companyId,
+                    financialYearId,
+                    voucherId: voucher.id,
+                    entryDate: voucherDate,
+                    ledgerId: salesReturnLedgerId,
+                    debitAmount: input.amount,
+                    creditAmount: 0,
+                    lineNo: 1,
+                    remarks: `Credit Note DR - ${voucherNumber}`,
+                },
+                {
+                    companyId,
+                    financialYearId,
+                    voucherId: voucher.id,
+                    entryDate: voucherDate,
+                    ledgerId: customer.ledgerId,
+                    debitAmount: 0,
+                    creditAmount: input.amount,
+                    lineNo: 2,
+                    remarks: `Credit Note CR - ${voucherNumber}`,
+                },
+            ],
+        });
+
+        if (idemKey) {
+            await saveIdempotency(companyId, idemKey, { voucherId: voucher.id, voucherNumber }, tx);
+        }
+
+        return { voucher };
+    });
+
+    await createAuditLog({ userId, companyId, module: "vouchers", entityName: "Voucher", entityId: result.voucher.id, action: "CREATE" });
+    return result;
+}
+
+// ─── Debit Note Voucher Posting ───────────────────────────────────────────────
+
+export async function postDebitNoteVoucher(userId: string, input: CreateDebitNoteVoucherInput) {
+    const { companyId, financialYearId, supplierId, purchaseReturnLedgerId } = input;
+    const idemKey = input.idempotencyKey;
+
+    if (idemKey) {
+        const cached = await prisma.$transaction(async (tx) => checkIdempotency(companyId, idemKey, tx));
+        if (cached) return cached;
+    }
+
+    const supplier = await prisma.supplier.findFirst({
+        where: { id: supplierId, companyId },
+        include: { ledger: true },
+    });
+    if (!supplier) throw new AppError(404, "Supplier not found");
+
+    const returnLedger = await prisma.ledger.findFirst({ where: { id: purchaseReturnLedgerId, companyId } });
+    if (!returnLedger) throw new AppError(404, "Purchase return ledger not found");
+
+    const result = await prisma.$transaction(async (tx) => {
+        const voucherNumber = await generateVoucherNumber(tx, companyId, financialYearId, "DEBIT_NOTE");
+        const voucherDate = new Date(input.voucherDate);
+
+        const voucher = await tx.voucher.create({
+            data: {
+                companyId,
+                financialYearId,
+                voucherType: "DEBIT_NOTE",
+                voucherNumber,
+                voucherDate,
+                referenceNumber: input.referenceNumber,
+                narration: input.narration ?? `Debit note for ${supplier.name}`,
+                status: "POSTED",
+                counterpartyLedgerId: supplier.ledgerId,
+                totalTaxableAmount: input.amount,
+                totalTaxAmount: 0,
+                totalAmount: input.amount,
+                createdById: userId,
+            },
+        });
+
+        await tx.voucherLine.createMany({
+            data: [
+                {
+                    voucherId: voucher.id,
+                    lineNo: 1,
+                    ledgerId: supplier.ledgerId,
+                    description: `Debit note - ${supplier.name}`,
+                    taxableAmount: input.amount,
+                    lineTotal: input.amount,
+                },
+                {
+                    voucherId: voucher.id,
+                    lineNo: 2,
+                    ledgerId: purchaseReturnLedgerId,
+                    description: "Purchase return",
+                    taxableAmount: input.amount,
+                    lineTotal: input.amount,
+                },
+            ],
+        });
+
+        // DR Supplier / CR Purchase Return
+        await tx.ledgerEntry.createMany({
+            data: [
+                {
+                    companyId,
+                    financialYearId,
+                    voucherId: voucher.id,
+                    entryDate: voucherDate,
+                    ledgerId: supplier.ledgerId,
+                    debitAmount: input.amount,
+                    creditAmount: 0,
+                    lineNo: 1,
+                    remarks: `Debit Note DR - ${voucherNumber}`,
+                },
+                {
+                    companyId,
+                    financialYearId,
+                    voucherId: voucher.id,
+                    entryDate: voucherDate,
+                    ledgerId: purchaseReturnLedgerId,
+                    debitAmount: 0,
+                    creditAmount: input.amount,
+                    lineNo: 2,
+                    remarks: `Debit Note CR - ${voucherNumber}`,
+                },
+            ],
+        });
+
+        if (idemKey) {
+            await saveIdempotency(companyId, idemKey, { voucherId: voucher.id, voucherNumber }, tx);
+        }
+
+        return { voucher };
+    });
+
+    await createAuditLog({ userId, companyId, module: "vouchers", entityName: "Voucher", entityId: result.voucher.id, action: "CREATE" });
+    return result;
+}
+
+// ─── Journal Voucher Posting ──────────────────────────────────────────────────
+
+export async function postJournalVoucher(userId: string, input: CreateJournalVoucherInput) {
+    const { companyId, financialYearId } = input;
+    const idemKey = input.idempotencyKey;
+
+    if (idemKey) {
+        const cached = await prisma.$transaction(async (tx) => checkIdempotency(companyId, idemKey, tx));
+        if (cached) return cached;
+    }
+
+    const ledgerIds = [...new Set(input.lines.map((line) => line.ledgerId))];
+    const ledgers = await prisma.ledger.findMany({
+        where: {
+            companyId,
+            id: { in: ledgerIds },
+        },
+        select: { id: true, name: true },
+    });
+
+    if (ledgers.length !== ledgerIds.length) {
+        throw new AppError(400, "One or more ledgers do not belong to the selected company");
+    }
+
+    const totalDebit = Number.parseFloat(input.lines.reduce((sum, line) => sum + Number(line.debitAmount || 0), 0).toFixed(2));
+    const totalCredit = Number.parseFloat(input.lines.reduce((sum, line) => sum + Number(line.creditAmount || 0), 0).toFixed(2));
+
+    if (Math.abs(totalDebit - totalCredit) > 0.01) {
+        throw new AppError(400, "Journal entry must be balanced (total debit = total credit)");
+    }
+
+    const result = await prisma.$transaction(async (tx) => {
+        const voucherNumber = await generateVoucherNumber(tx, companyId, financialYearId, "JOURNAL");
+        const voucherDate = new Date(input.voucherDate);
+
+        const voucher = await tx.voucher.create({
+            data: {
+                companyId,
+                financialYearId,
+                voucherType: "JOURNAL",
+                voucherNumber,
+                voucherDate,
+                referenceNumber: input.referenceNumber,
+                narration: input.narration,
+                status: "POSTED",
+                totalTaxableAmount: totalDebit,
+                totalTaxAmount: 0,
+                totalAmount: totalDebit,
+                createdById: userId,
+            },
+        });
+
+        await tx.voucherLine.createMany({
+            data: input.lines.map((line, idx) => ({
+                voucherId: voucher.id,
+                lineNo: idx + 1,
+                ledgerId: line.ledgerId,
+                description: line.description,
+                taxableAmount: Number(line.debitAmount || line.creditAmount || 0),
+                lineTotal: Number(line.debitAmount || line.creditAmount || 0),
+            })),
+        });
+
+        await tx.ledgerEntry.createMany({
+            data: input.lines.map((line, idx) => ({
+                companyId,
+                financialYearId,
+                voucherId: voucher.id,
+                entryDate: voucherDate,
+                ledgerId: line.ledgerId,
+                debitAmount: Number(line.debitAmount || 0),
+                creditAmount: Number(line.creditAmount || 0),
+                lineNo: idx + 1,
+                remarks: line.description || `Journal - ${voucherNumber}`,
+            })),
+        });
+
+        if (idemKey) {
+            await saveIdempotency(companyId, idemKey, { voucherId: voucher.id, voucherNumber }, tx);
+        }
+
+        return { voucher };
+    });
+
+    await createAuditLog({ userId, companyId, module: "vouchers", entityName: "Voucher", entityId: result.voucher.id, action: "CREATE" });
+    return result;
+}
+
+// ─── Inventory Adjustment Posting ─────────────────────────────────────────────
+
+export async function postInventoryAdjustment(userId: string, input: CreateInventoryAdjustmentInput) {
+    const {
+        companyId,
+        financialYearId,
+        stockItemId,
+        txnDate,
+        adjustmentType,
+        qty,
+        unitCost,
+        reason,
+        referenceNumber,
+        idempotencyKey,
+    } = input;
+
+    if (idempotencyKey) {
+        const cached = await prisma.$transaction(async (tx) => checkIdempotency(companyId, idempotencyKey, tx));
+        if (cached) return cached;
+    }
+
+    const company = await prisma.company.findUnique({ where: { id: companyId } });
+    if (!company) throw new AppError(404, "Company not found");
+
+    const stockItem = await prisma.stockItem.findFirst({ where: { id: stockItemId, companyId } });
+    if (!stockItem) throw new AppError(404, "Stock item not found");
+
+    const stockTotals = await prisma.inventoryTransaction.aggregate({
+        where: { companyId, stockItemId },
+        _sum: { qtyIn: true, qtyOut: true },
+    });
+
+    const currentBalance = Number(stockTotals._sum.qtyIn ?? 0) - Number(stockTotals._sum.qtyOut ?? 0);
+    if (adjustmentType === "OUT" && !company.allowNegativeStock && currentBalance < qty) {
+        throw new AppError(400, `Insufficient stock for adjustment. Available: ${currentBalance.toFixed(3)}`);
+    }
+
+    const qtyIn = adjustmentType === "IN" ? qty : 0;
+    const qtyOut = adjustmentType === "OUT" ? qty : 0;
+    const totalCost = Number.parseFloat((qty * unitCost).toFixed(2));
+    const effectiveReference = referenceNumber ?? reason ?? `ADJ-${Date.now()}`;
+
+    const result = await prisma.$transaction(async (tx) => {
+        const adjustment = await tx.inventoryTransaction.create({
+            data: {
+                companyId,
+                financialYearId,
+                stockItemId,
+                txnType: "ADJUSTMENT",
+                txnDate: new Date(txnDate),
+                qtyIn,
+                qtyOut,
+                unitCost,
+                totalCost,
+                reference: effectiveReference,
+            },
+        });
+
+        const balanceAfter = adjustmentType === "IN" ? currentBalance + qty : currentBalance - qty;
+
+        if (idempotencyKey) {
+            await saveIdempotency(
+                companyId,
+                idempotencyKey,
+                { inventoryTransactionId: adjustment.id, balanceAfter },
+                tx
+            );
+        }
+
+        return { adjustment, balanceAfter };
+    });
+
+    await createAuditLog({
+        userId,
+        companyId,
+        module: "inventory",
+        entityName: "InventoryTransaction",
+        entityId: result.adjustment.id,
+        action: "CREATE",
+        changes: {
+            stockItemId,
+            adjustmentType,
+            qty,
+            unitCost,
+            reason,
+            referenceNumber: effectiveReference,
+        },
+    });
+
     return result;
 }
 

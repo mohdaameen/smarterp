@@ -11,5 +11,9 @@ router.get("/sales-register", ctrl.salesRegister);
 router.get("/purchase-register", ctrl.purchaseRegister);
 router.get("/outstanding-customers", ctrl.outstandingCustomers);
 router.get("/outstanding-suppliers", ctrl.outstandingSuppliers);
+router.get("/trial-balance", ctrl.trialBalance);
+router.get("/balance-sheet", ctrl.balanceSheet);
+router.get("/profit-loss", ctrl.profitLoss);
+router.get("/cash-flow", ctrl.cashFlow);
 
 export default router;

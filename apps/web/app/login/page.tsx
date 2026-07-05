@@ -5,20 +5,28 @@ import { FormEvent, useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { ApiError, apiRequest } from "../../lib/api-client";
 import { LoginResponse } from "../../lib/contracts";
-import { readSession, writeSession } from "../../lib/session";
+import { useAuth } from "../../lib/auth-context";
 
 export default function LoginPage() {
     const router = useRouter();
+    const { isAuthenticated, login } = useAuth();
     const [form, setForm] = useState({ email: "", password: "" });
     const [busy, setBusy] = useState(false);
     const [error, setError] = useState("");
 
     useEffect(() => {
-        const session = readSession();
-        if (session) {
+        if (isAuthenticated) {
             router.replace("/workspace");
+            return;
         }
-    }, [router]);
+
+        const reason = new URLSearchParams(window.location.search).get("reason");
+        if (reason === "expired") {
+            setError("Your session expired. Please login again.");
+        } else if (reason === "unauthorized") {
+            setError("Your session is no longer valid. Please login again.");
+        }
+    }, [isAuthenticated, router]);
 
     async function onSubmit(e: FormEvent) {
         e.preventDefault();
@@ -29,7 +37,7 @@ export default function LoginPage() {
                 method: "POST",
                 body: form
             });
-            writeSession({
+            login({
                 accessToken: data.accessToken,
                 refreshToken: data.refreshToken,
                 userName: data.user.fullName
@@ -51,7 +59,7 @@ export default function LoginPage() {
             <section className="card auth-card">
                 <p className="kicker">SmartERP</p>
                 <h1>Login</h1>
-                <p className="subtle">Start by signing in to access company, masters, and vouchers.</p>
+                <p className="subtle">Sign in to access your modules and entries workspace.</p>
                 <form onSubmit={onSubmit}>
                     <label>Email</label>
                     <input

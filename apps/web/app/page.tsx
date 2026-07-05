@@ -2,19 +2,19 @@
 
 import { useEffect } from "react";
 import { useRouter } from "next/navigation";
-import { readSession } from "../lib/session";
+import { useAuth } from "../lib/auth-context";
 
 export default function HomePage() {
     const router = useRouter();
+    const { isAuthenticated } = useAuth();
 
     useEffect(() => {
-        const session = readSession();
-        if (session) {
+        if (isAuthenticated) {
             router.replace("/workspace");
         } else {
             router.replace("/login");
         }
-    }, [router]);
+    }, [isAuthenticated, router]);
 
     return (
         <main className="shell auth-shell">

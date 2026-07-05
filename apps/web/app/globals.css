@@ -174,6 +174,18 @@ button.danger {
     background: linear-gradient(150deg, #dc2626 0%, #991b1b 100%);
 }
 
+button.ghost {
+    background: #f3f6f8;
+    color: var(--ink);
+    border: 1px solid var(--line);
+}
+
+.field-error {
+    margin: 0;
+    color: var(--danger);
+    font-size: 0.8rem;
+}
+
 .subtle {
     margin: 0.15rem 0;
     color: var(--ink-muted);
@@ -276,6 +288,46 @@ pre {
     gap: 0.9rem;
 }
 
+.kpi-grid {
+    display: grid;
+    gap: 0.6rem;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+.kpi-card {
+    border: 1px solid var(--line);
+    border-radius: 12px;
+    padding: 0.7rem;
+    background: rgba(255, 255, 255, 0.72);
+}
+
+.kpi-label {
+    margin: 0;
+    font-size: 0.78rem;
+    color: var(--ink-muted);
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+}
+
+.kpi-value {
+    margin: 0.25rem 0 0;
+    font-size: 1rem;
+    font-weight: 700;
+    color: var(--ink);
+}
+
+.empty-state {
+    border: 1px dashed var(--line);
+    border-radius: 14px;
+    padding: 0.9rem 1rem;
+    background: rgba(255, 255, 255, 0.65);
+}
+
+.empty-state h3 {
+    margin: 0 0 0.35rem;
+    font-size: 0.96rem;
+}
+
 .auth-shell {
     min-height: 100vh;
     align-content: center;
@@ -284,6 +336,102 @@ pre {
 .auth-card {
     max-width: 520px;
     margin: 0 auto;
+}
+
+.workspace-layout {
+    width: min(1320px, calc(100% - 2rem));
+    margin: 1.25rem auto 2rem;
+    display: grid;
+    grid-template-columns: 250px 1fr;
+    gap: 1rem;
+}
+
+.workspace-sidebar {
+    position: sticky;
+    top: 1rem;
+    height: fit-content;
+    display: grid;
+    gap: 0.75rem;
+}
+
+.workspace-title {
+    margin: 0;
+}
+
+.workspace-nav {
+    display: grid;
+    gap: 0.45rem;
+}
+
+.workspace-nav-link {
+    border: 1px solid var(--line);
+    border-radius: 10px;
+    padding: 0.52rem 0.65rem;
+    color: var(--ink);
+    background: rgba(255, 255, 255, 0.65);
+    text-decoration: none;
+    font-weight: 600;
+}
+
+.workspace-nav-link:hover {
+    background: #fff;
+    text-decoration: none;
+}
+
+.workspace-nav-link.active {
+    background: linear-gradient(150deg, #ecf7fa 0%, #e1f0f4 100%);
+    border-color: #bddde5;
+    color: var(--accent-dark);
+}
+
+.workspace-content {
+    min-width: 0;
+}
+
+.global-banner {
+    position: fixed;
+    top: 0.75rem;
+    left: 50%;
+    transform: translateX(-50%);
+    z-index: 90;
+    width: min(720px, calc(100% - 1.2rem));
+    border-radius: 10px;
+    padding: 0.7rem 0.85rem;
+    border: 1px solid #f3c8c8;
+    background: #fde9e9;
+    color: var(--danger);
+    box-shadow: 0 10px 24px rgba(16, 24, 40, 0.12);
+}
+
+.toast-stack {
+    position: fixed;
+    right: 0.85rem;
+    bottom: 0.85rem;
+    z-index: 95;
+    display: grid;
+    gap: 0.5rem;
+    width: min(340px, calc(100% - 1.2rem));
+}
+
+.toast {
+    border-radius: 10px;
+    padding: 0.62rem 0.72rem;
+    border: 1px solid var(--line);
+    box-shadow: 0 8px 20px rgba(16, 24, 40, 0.12);
+    background: #fff;
+    font-size: 0.86rem;
+}
+
+.toast.ok {
+    border-color: #c6e7cb;
+    background: #eaf8ec;
+    color: var(--ok);
+}
+
+.toast.error {
+    border-color: #f3c8c8;
+    background: #fde9e9;
+    color: var(--danger);
 }
 
 .inline-error,
@@ -314,4 +462,24 @@ a {
 
 a:hover {
     text-decoration: underline;
+}
+
+@media (max-width: 1000px) {
+    .workspace-layout {
+        grid-template-columns: 1fr;
+        width: min(100%, calc(100% - 1rem));
+        margin: 0.7rem auto 1.2rem;
+    }
+
+    .workspace-sidebar {
+        position: static;
+    }
+
+    .workspace-nav {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+    }
+
+    .kpi-grid {
+        grid-template-columns: 1fr;
+    }
 }

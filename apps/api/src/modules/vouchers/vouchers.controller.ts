@@ -29,6 +29,41 @@ export async function postPayment(req: Request, res: Response, next: NextFunctio
     } catch (err) { next(err); }
 }
 
+export async function postContra(req: Request, res: Response, next: NextFunction): Promise<void> {
+    try {
+        const result = await svc.postContraVoucher(req.user!.userId, req.body);
+        res.status(201).json({ ok: true, data: result });
+    } catch (err) { next(err); }
+}
+
+export async function postCreditNote(req: Request, res: Response, next: NextFunction): Promise<void> {
+    try {
+        const result = await svc.postCreditNoteVoucher(req.user!.userId, req.body);
+        res.status(201).json({ ok: true, data: result });
+    } catch (err) { next(err); }
+}
+
+export async function postDebitNote(req: Request, res: Response, next: NextFunction): Promise<void> {
+    try {
+        const result = await svc.postDebitNoteVoucher(req.user!.userId, req.body);
+        res.status(201).json({ ok: true, data: result });
+    } catch (err) { next(err); }
+}
+
+export async function postJournal(req: Request, res: Response, next: NextFunction): Promise<void> {
+    try {
+        const result = await svc.postJournalVoucher(req.user!.userId, req.body);
+        res.status(201).json({ ok: true, data: result });
+    } catch (err) { next(err); }
+}
+
+export async function postInventoryAdjustment(req: Request, res: Response, next: NextFunction): Promise<void> {
+    try {
+        const result = await svc.postInventoryAdjustment(req.user!.userId, req.body);
+        res.status(201).json({ ok: true, data: result });
+    } catch (err) { next(err); }
+}
+
 export async function list(req: Request, res: Response, next: NextFunction): Promise<void> {
     try {
         const result = await svc.listVouchers(req.query as unknown as Parameters<typeof svc.listVouchers>[0]);

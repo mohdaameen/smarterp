@@ -635,4 +635,3 @@ Frontend should keep these menu items behind a Coming Soon flag for now.
 - apps/api/src/modules/reports/reports.routes.ts
 - apps/api/src/modules/reports/reports.service.ts
 - apps/api/prisma/schema.prisma
-- test_receipt_payment_fixed.ps1

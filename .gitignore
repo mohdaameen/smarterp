@@ -6,3 +6,4 @@ apps/*/.env
 apps/*/.env.local
 *.log
 coverage
+docs/

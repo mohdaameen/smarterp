@@ -6,11 +6,17 @@
         "apps/*"
     ],
     "scripts": {
+        "docker:build": "docker build -t smarterp .",
+        "docker:run": "docker run --rm --env-file .env -e NODE_ENV=production -p 3000:3000 -p 4000:4000 smarterp",
         "dev": "npm run dev -w @smarterp/api & npm run dev -w @smarterp/web",
         "dev:web": "npm run dev -w @smarterp/web",
+        "dev:web:clean": "node scripts/safe-web-restart.mjs --clean-only",
+        "dev:web:safe": "node scripts/safe-web-restart.mjs",
+        "dev:web:safe:check": "node scripts/safe-web-restart.mjs --check",
         "dev:api": "npm run dev -w @smarterp/api",
         "build": "npm run build -w @smarterp/web && npm run build -w @smarterp/api",
-        "start": "npm run start -w @smarterp/api"
+        "start": "npm run start -w @smarterp/api",
+        "smoke:api": "node scripts/smoke-api.mjs"
     },
     "engines": {
         "node": ">=20"

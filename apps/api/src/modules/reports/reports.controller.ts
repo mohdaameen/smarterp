@@ -53,3 +53,31 @@ export async function outstandingSuppliers(req: Request, res: Response, next: Ne
         res.json({ ok: true, data });
     } catch (err) { next(err); }
 }
+
+export async function trialBalance(req: Request, res: Response, next: NextFunction): Promise<void> {
+    try {
+        const result = await svc.getTrialBalance(commonParams(req));
+        res.json({ ok: true, ...result });
+    } catch (err) { next(err); }
+}
+
+export async function balanceSheet(req: Request, res: Response, next: NextFunction): Promise<void> {
+    try {
+        const result = await svc.getBalanceSheet(commonParams(req));
+        res.json({ ok: true, ...result });
+    } catch (err) { next(err); }
+}
+
+export async function profitLoss(req: Request, res: Response, next: NextFunction): Promise<void> {
+    try {
+        const result = await svc.getProfitLoss(commonParams(req));
+        res.json({ ok: true, ...result });
+    } catch (err) { next(err); }
+}
+
+export async function cashFlow(req: Request, res: Response, next: NextFunction): Promise<void> {
+    try {
+        const result = await svc.getCashFlow(commonParams(req));
+        res.json({ ok: true, ...result });
+    } catch (err) { next(err); }
+}

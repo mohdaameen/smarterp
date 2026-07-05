@@ -15,6 +15,16 @@ export class ApiError extends Error {
     }
 }
 
+function broadcastLogout(reason: "expired" | "unauthorized") {
+    if (globalThis.window === undefined) return;
+    globalThis.window.dispatchEvent(new CustomEvent("smarterp:logout", { detail: { reason } }));
+}
+
+function broadcastApiError(message: string) {
+    if (globalThis.window === undefined) return;
+    globalThis.window.dispatchEvent(new CustomEvent("smarterp:api-error", { detail: { message } }));
+}
+
 type RequestOptions = {
     method?: "GET" | "POST" | "PATCH" | "DELETE";
     token?: string;
@@ -55,16 +65,27 @@ async function doRequest(path: string, options: RequestOptions = {}): Promise<En
         headers.Authorization = `Bearer ${options.token}`;
     }
 
-    const response = await fetch(buildUrl(path, options.query), {
-        method: options.method ?? "GET",
-        headers,
-        body: options.body ? JSON.stringify(options.body) : undefined,
-        cache: "no-store"
-    });
+    let response: Response;
+    try {
+        response = await fetch(buildUrl(path, options.query), {
+            method: options.method ?? "GET",
+            headers,
+            body: options.body ? JSON.stringify(options.body) : undefined,
+            cache: "no-store"
+        });
+    } catch {
+        broadcastApiError("Network error. Please check API server connectivity.");
+        throw new ApiError(0, "Network error");
+    }
 
     const payload = (await response.json().catch(() => null)) as Envelope<unknown> | null;
 
     if (!response.ok) {
+        if (response.status === 401) {
+            broadcastLogout("unauthorized");
+        } else {
+            broadcastApiError(payload?.error ?? `Request failed: HTTP ${response.status}`);
+        }
         throw new ApiError(
             response.status,
             payload?.error ?? `HTTP ${response.status}`,

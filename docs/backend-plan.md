@@ -1,135 +1,128 @@
-# SmartERP Backend MVP Status and Finalization Plan
+# SmartERP Backend Plan (PDF-Aligned Status + Next Plan)
 
 Last updated: 2026-07-04
 
-## 1. Executive Summary
+## 1. Purpose
 
-Backend is in a strong state and already covers the accounting-and-inventory core needed for an MVP submission.
+This document maps the backend implementation against the assignment PDF and clearly shows:
 
-Current verdict:
-- Backend foundation: complete
-- Core business flows: mostly complete
-- Submission-ready hardening/docs/testing: partially complete
+1. What is implemented
+2. What is tested
+3. What is pending (todo)
+4. How to finish the remaining work in a practical order
 
-This document defines the minimum remaining work required to confidently present the backend as "project done (MVP)" without building every advanced ERP feature from the assignment PDF.
+## 2. Current Summary
 
-## 2. What Is Already Complete
+Backend is strong for MVP accounting + inventory core.
 
-### Platform and Architecture
-- Express + TypeScript API is running and stable.
-- Prisma + PostgreSQL schema and migrations are in place.
-- Environment validation, centralized error handling, and structured logging are implemented.
-- JWT auth and role-aware company membership checks are implemented.
+High-level status:
 
-### Company and Master Data
-- Company CRUD and company membership flows are implemented.
-- Financial year creation/listing is implemented.
-- Masters CRUD is implemented for:
-  - ledger groups
-  - ledgers
-  - units
-  - stock groups
-  - stock items
-  - customers
-  - suppliers
+- Foundation/API architecture: implemented and tested
+- Core masters + core vouchers: implemented and tested
+- Core operational reports: implemented and tested
+- Advanced ERP modules from PDF: partially pending by design
 
-### Core Transactions
-- Sales voucher posting is implemented.
-- Purchase voucher posting is implemented.
-- Receipt voucher posting is implemented.
-- Payment voucher posting is implemented.
-- Voucher list/detail/cancel flow is implemented.
+## 3. Feature-Wise Status Table (Based on PDF)
 
-### Accounting and Inventory Integrity
-- Stock movement is posted with voucher transactions.
-- GST split logic is implemented (CGST/SGST/IGST).
-- Negative stock guard is implemented.
-- Idempotency support for voucher posting is implemented.
-- Audit log writes exist for critical mutations.
+Legend:
 
-### Reporting (MVP Level)
-- Stock summary report is implemented.
-- Sales register report is implemented.
-- Purchase register report is implemented.
-- Outstanding customers report is implemented.
-- Outstanding suppliers report is implemented.
+- Implemented: Yes/Partial/No
+- Tested: Yes/Partial/No
+- Todo: immediate next backend action
 
-## 3. Minimum Remaining Scope to Say "MVP Done"
+| PDF Module / Feature | Implemented | Tested | Notes (Current Backend) | Todo |
+|---|---|---|---|---|
+| Authentication (Register/Login/Refresh/Profile) | Yes | Yes | JWT auth routes live under `/api/v1/auth` | Add token revocation strategy |
+| Company Selection + Multi-company basics | Yes | Yes | Company CRUD + membership + roles + FY routes available | Enforce max-5 companies validation if not strict yet |
+| Company Alter/Delete flows | Partial | Partial | Create/list/get/update confirmed; delete behavior not treated as core in current docs | Finalize delete policy (soft/hard) and tests |
+| Role-based access control | Yes | Yes | Role checks used across companies/masters/vouchers/reports | Add role matrix doc in API docs |
+| Masters: Ledger Groups | Yes | Yes | CRUD implemented | Add bulk import endpoint (optional) |
+| Masters: Ledgers | Yes | Yes | CRUD implemented with role checks | Add stronger duplicate-code/name guards |
+| Masters: Units | Yes | Yes | CRUD implemented | Add unit conversion rules (optional) |
+| Masters: Stock Groups | Yes | Yes | CRUD implemented | Add hierarchy report endpoint (optional) |
+| Masters: Stock Items | Yes | Yes | CRUD implemented | Add low-stock threshold endpoint |
+| Masters: Customers | Yes | Yes | CRUD implemented, ledger linkage in service flow | Add customer statement endpoint |
+| Masters: Suppliers | Yes | Yes | CRUD implemented, ledger linkage in service flow | Add supplier statement endpoint |
+| Voucher: Sales | Yes | Yes | Posting + inventory impact + GST + list/detail/cancel flow | Add print/invoice payload enrichment |
+| Voucher: Purchase | Yes | Yes | Posting + inventory impact + GST + list/detail/cancel flow | Add supplier bill attachment metadata |
+| Voucher: Receipt | Yes | Yes | Implemented and tested in previous integration checks | Add optional bank reference validation |
+| Voucher: Payment | Yes | Yes | Implemented and tested in previous integration checks | Add optional approval workflow |
+| Voucher: Journal | Yes | Yes | Minimal posting endpoint implemented (`/vouchers/journal`) with balanced DR/CR validation and live post/list/detail smoke test passed | Keep in regression smoke suite |
+| Voucher: Contra | Yes | No | Endpoint implemented (`POST /vouchers/contra`) with bank/cash transfer validation and balanced ledger entries (journal-backed) | Add smoke test + dedicated `CONTRA` enum/migration if needed |
+| Voucher: Credit Note | Yes | No | Endpoint implemented (`POST /vouchers/credit-note`) with customer + sales-return ledger posting | Add smoke test with customer return scenario |
+| Voucher: Debit Note | Yes | No | Endpoint implemented (`POST /vouchers/debit-note`) with supplier + purchase-return ledger posting | Add smoke test with supplier return scenario |
+| Inventory: Stock In/Out (via vouchers) | Yes | Yes | Purchase/sales generate inventory transactions | Maintain regression coverage |
+| Inventory: Transfer/Adjustment module | Partial | Yes | Inventory adjustment endpoint implemented (`POST /vouchers/inventory-adjustment`) and smoke-tested with negative-stock guard | Add stock transfer API and include ADJUSTMENT in stock summary report |
+| Billing/Invoice numbering for sales | Yes | Yes | Sales voucher creates invoice-related flow | Add proforma/quotation support (optional) |
+| GST calculations (CGST/SGST/IGST) | Yes | Yes | Calculation logic active in voucher posting | Add GST summary report endpoint set |
+| Reports: Stock Summary | Yes | Yes | Route exists and tested | Add low-stock report |
+| Reports: Sales Register | Yes | Yes | Route exists and tested | Add daily/monthly grouped variants |
+| Reports: Purchase Register | Yes | Yes | Route exists and tested | Add supplier summary variant |
+| Reports: Outstanding Customers | Yes | Yes | Route exists and tested | Add aging buckets |
+| Reports: Outstanding Suppliers | Yes | Yes | Route exists and tested | Add aging buckets |
+| Reports: Balance Sheet | Yes | Yes | Endpoint implemented (`GET /reports/balance-sheet`) with assets/liabilities/equity sections and balancing summary; added to automated smoke run | Add section grouping refinements if evaluator expects strict schedule format |
+| Reports: Profit and Loss | Yes | Yes | Endpoint implemented (`GET /reports/profit-loss`) with period income/expense rollup and net profit/loss summary; covered by smoke test | Add grouped presentation by ledger groups if needed |
+| Reports: Trial Balance | Yes | Yes | Endpoint implemented (`GET /reports/trial-balance`) with opening/period/closing balances and summary totals; live smoke tested | Keep in regression smoke suite |
+| Reports: Cash Flow | Yes | Yes | Endpoint implemented (`GET /reports/cash-flow`) over cash/bank ledgers with opening/inflow/outflow/net/closing summary; covered by smoke test | Add operating/investing/financing classification if needed |
+| Banking module (reconciliation/cheque mgmt) | No | No | Not implemented | Defer beyond MVP unless required |
+| Keyboard-shortcut backend support | Partial | Partial | Backend endpoints available for core actions | Frontend keyboard layer needed for full PDF goal |
+| OpenAPI / Swagger full coverage | Yes | Partial | Swagger expanded with active auth/companies/masters/vouchers/reports routes including contra/credit-note/debit-note | Add response envelope examples and keep in sync with future routes |
+| Automated backend test suite | Yes | Yes | Automated smoke command (`npm run smoke:api`) covers auth/company/masters/vouchers/reports including balance-sheet, profit-loss, and cash-flow | CI intentionally skipped for college project scope |
 
-Only the items below are required for presentable completion.
+## 4. What Is Considered Tested "For Now"
 
-### A. API Documentation Completion
-Status: pending
+The following are treated as tested based on current implementation work and runtime verification done during this phase:
 
-Required outcome:
-- Publish clean endpoint documentation for all implemented modules:
+1. API boot + DB connectivity
+2. Auth flows (register/login/refresh/me)
+3. Companies + financial year + members flow
+4. Masters CRUD set (groups/ledgers/units/stock groups/stock items/customers/suppliers)
+5. Vouchers (sales/purchase/receipt/payment)
+6. Report endpoints currently implemented (stock summary, sales register, purchase register, outstanding)
+
+## 5. Practical Plan To Reach "Backend Done for Submission"
+
+Goal: Complete the minimum high-impact pending scope without attempting full enterprise ERP.
+
+### Phase A (Day 1)
+
+1. Complete OpenAPI docs for all currently implemented routes
+2. Add examples for request/response payloads and validation errors
+3. Freeze and publish API contract for frontend/demo
+
+### Phase B (Day 2)
+
+1. Add backend smoke tests for critical happy paths:
   - auth
-  - companies
-  - masters
-  - vouchers (sales, purchase, receipt, payment)
-  - reports
+  - company + FY
+  - masters creation
+  - voucher posting (sales/purchase/receipt/payment)
+  - report fetch checks
+2. Add one command to run smoke suite in local/CI
 
-Acceptance criteria:
-- Each endpoint has method, path, auth requirement, required query params, sample request, sample success/error response.
+### Phase C (Day 3)
 
-### B. Automated Smoke Test Coverage
-Status: partial (manual verification exists)
+1. Implement Journal voucher (minimal)
+2. Implement one inventory adjustment endpoint
+3. Add low-stock report endpoint
 
-Required outcome:
-- Add repeatable automated integration/smoke tests for critical flows:
-  1. auth login/refresh
-  2. company + financial year context setup
-  3. master creation (customer, supplier, ledgers, stock item)
-  4. purchase posting
-  5. sales posting
-  6. receipt posting
-  7. payment posting
-  8. report fetch checks
+### Phase D (Day 4)
 
-Acceptance criteria:
-- One command runs the suite and passes reliably on a fresh environment.
+1. Security hardening:
+  - auth rate limiting
+  - refresh token revocation table/strategy
+2. Final stabilization and regression pass
 
-### C. Security Hardening for Submission
-Status: pending
+## 6. Deferred Scope (Explicit)
 
-Required outcome:
-- Add API rate limiting for auth and high-risk routes.
-- Add refresh-token revocation strategy (DB/session table or rotation blacklist).
+These remain intentionally out-of-scope for current submission unless evaluator strictly demands them:
 
-Acceptance criteria:
-- Auth brute-force risk reduced.
-- Token invalidation story is demonstrable during review.
+1. Contra, credit note, debit note full workflows
+2. Balance sheet, P&L, trial balance, cash flow full accounting statements
+3. Banking reconciliation and cheque lifecycle management
+4. Advanced GST exports/filing formats
+5. Payroll, multi-branch, OCR/AI features
 
-## 4. Explicitly Deferred (Not Required for MVP Sign-Off)
+## 7. Submission-Ready Statement
 
-These are intentionally out of MVP completion scope:
-- Journal, contra, credit note, debit note full workflows
-- Full financial statements engine (Balance Sheet, P&L, Trial Balance, Cash Flow)
-- Advanced GST module exports and filing workflows
-- Banking reconciliation module
-- Payroll module
-- Multi-branch operations
-- OCR/AI/WhatsApp/mobile enhancements
-
-## 5. Practical Definition of Done (Backend MVP)
-
-Backend can be presented as "done" when all points below are true:
-
-1. Core modules are implemented and operational:
-   - auth, companies, masters, vouchers (sales/purchase/receipt/payment), reports.
-2. Data correctness is demonstrated:
-   - stock, GST, and ledger effects are consistent for voucher posting.
-3. API contract is fully documented for consumed endpoints.
-4. Automated smoke tests pass in CI/local with one command.
-5. Basic security hardening is applied (rate limit + refresh token control).
-
-## 6. Recommended Final Execution Order
-
-1. Complete API docs for currently implemented endpoints.
-2. Add and stabilize end-to-end smoke tests.
-3. Implement rate limiting and refresh-token revocation.
-4. Run final demo script and freeze backend scope.
-
-## 7. Presentation Statement (Use in Viva/Review)
-
-"SmartERP backend MVP is complete for core business operations: authentication, company-scoped masters, stock-aware purchase/sales, receipt/payment vouchers, GST handling, and operational reports. Advanced ERP modules are intentionally deferred beyond MVP."
+Backend is currently strong enough to present as MVP-complete for core SmartERP operations (auth, company scoping, masters, sales/purchase/receipt/payment vouchers, inventory impacts, GST-ready posting, and operational reports), with advanced accounting statements and banking workflows clearly marked as phase-2 enhancements.
